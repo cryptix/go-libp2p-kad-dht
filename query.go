@@ -12,11 +12,8 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	pstore "github.com/libp2p/go-libp2p/core/peerstore"
 	"github.com/libp2p/go-libp2p/core/routing"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/trace"
 
 	"github.com/google/uuid"
-	"github.com/libp2p/go-libp2p-kad-dht/internal"
 	"github.com/libp2p/go-libp2p-kad-dht/qpeerset"
 	kb "github.com/libp2p/go-libp2p-kbucket"
 )
@@ -81,8 +78,6 @@ type lookupWithFollowupResult struct {
 // After the lookup is complete the query function is run (unless stopped) against all of the top K peers from the
 // lookup that have not already been successfully queried.
 func (dht *IpfsDHT) runLookupWithFollowup(ctx context.Context, target string, queryFn queryFn, stopFn stopFn) (*lookupWithFollowupResult, error) {
-	ctx, span := internal.StartSpan(ctx, "IpfsDHT.RunLookupWithFollowup", trace.WithAttributes(internal.KeyAsAttribute("Target", target)))
-	defer span.End()
 
 	// run the query
 	lookupRes, qps, err := dht.runQuery(ctx, target, queryFn, stopFn)
@@ -153,8 +148,6 @@ processFollowUp:
 }
 
 func (dht *IpfsDHT) runQuery(ctx context.Context, target string, queryFn queryFn, stopFn stopFn) (*lookupWithFollowupResult, *qpeerset.QueryPeerset, error) {
-	ctx, span := internal.StartSpan(ctx, "IpfsDHT.RunQuery")
-	defer span.End()
 
 	// pick the K closest peers to the key in our Routing table.
 	targetKadID := kb.ConvertKey(target)
@@ -272,9 +265,8 @@ type queryUpdate struct {
 }
 
 func (q *query) run() {
-	ctx, span := internal.StartSpan(q.ctx, "IpfsDHT.Query.Run")
-	defer span.End()
 
+	ctx := context.Background()
 	pathCtx, cancelPath := context.WithCancel(ctx)
 	defer cancelPath()
 
@@ -319,11 +311,6 @@ func (q *query) run() {
 
 // spawnQuery starts one query, if an available heard peer is found
 func (q *query) spawnQuery(ctx context.Context, cause peer.ID, queryPeer peer.ID, ch chan<- *queryUpdate) {
-	ctx, span := internal.StartSpan(ctx, "IpfsDHT.SpawnQuery", trace.WithAttributes(
-		attribute.String("Cause", cause.String()),
-		attribute.String("QueryPeer", queryPeer.String()),
-	))
-	defer span.End()
 
 	PublishLookupEvent(ctx,
 		NewLookupEvent(
@@ -391,8 +378,6 @@ func (q *query) isStarvationTermination() bool {
 }
 
 func (q *query) terminate(ctx context.Context, cancel context.CancelFunc, reason LookupTerminationReason) {
-	ctx, span := internal.StartSpan(ctx, "IpfsDHT.Query.Terminate", trace.WithAttributes(attribute.Stringer("Reason", reason)))
-	defer span.End()
 
 	if q.terminated {
 		return
@@ -416,9 +401,6 @@ func (q *query) terminate(ctx context.Context, cancel context.CancelFunc, reason
 // queryPeer does not access the query state in queryPeers!
 func (q *query) queryPeer(ctx context.Context, ch chan<- *queryUpdate, p peer.ID) {
 	defer q.waitGroup.Done()
-
-	ctx, span := internal.StartSpan(ctx, "IpfsDHT.QueryPeer")
-	defer span.End()
 
 	dialCtx, queryCtx := ctx, ctx
 
@@ -526,8 +508,6 @@ func (q *query) updateState(ctx context.Context, up *queryUpdate) {
 }
 
 func (dht *IpfsDHT) dialPeer(ctx context.Context, p peer.ID) error {
-	ctx, span := internal.StartSpan(ctx, "IpfsDHT.DialPeer", trace.WithAttributes(attribute.String("PeerID", p.String())))
-	defer span.End()
 
 	// short-circuit if we're already connected.
 	if dht.host.Network().Connectedness(p) == network.Connected {

@@ -9,14 +9,10 @@ import (
 
 	"github.com/hashicorp/go-multierror"
 	logging "github.com/ipfs/go-log"
-	"github.com/libp2p/go-libp2p-kad-dht/internal"
 	kbucket "github.com/libp2p/go-libp2p-kbucket"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/multiformats/go-base32"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/trace"
 )
 
 var logger = logging.Logger("dht/RtRefreshManager")
@@ -132,8 +128,6 @@ func (r *RtRefreshManager) RefreshNoWait() {
 // pingAndEvictPeers pings Routing Table peers that haven't been heard of/from
 // in the interval they should have been and evict them if they don't reply.
 func (r *RtRefreshManager) pingAndEvictPeers(ctx context.Context) {
-	ctx, span := internal.StartSpan(ctx, "RefreshManager.PingAndEvictPeers")
-	defer span.End()
 
 	var peersChecked int
 	var alive int64
@@ -152,19 +146,17 @@ func (r *RtRefreshManager) pingAndEvictPeers(ctx context.Context) {
 			livelinessCtx, cancel := context.WithTimeout(ctx, peerPingTimeout)
 			defer cancel()
 			peerIdStr := ps.Id.String()
-			livelinessCtx, span := internal.StartSpan(livelinessCtx, "RefreshManager.PingAndEvictPeers.worker", trace.WithAttributes(attribute.String("peer", peerIdStr)))
-			defer span.End()
 
 			if err := r.h.Connect(livelinessCtx, peer.AddrInfo{ID: ps.Id}); err != nil {
 				logger.Debugw("evicting peer after failed connection", "peer", peerIdStr, "error", err)
-				span.RecordError(err)
+
 				r.rt.RemovePeer(ps.Id)
 				return
 			}
 
 			if err := r.refreshPingFnc(livelinessCtx, ps.Id); err != nil {
 				logger.Debugw("evicting peer after failed ping", "peer", peerIdStr, "error", err)
-				span.RecordError(err)
+
 				r.rt.RemovePeer(ps.Id)
 				return
 			}
@@ -174,10 +166,10 @@ func (r *RtRefreshManager) pingAndEvictPeers(ctx context.Context) {
 	}
 	wg.Wait()
 
-	span.SetAttributes(attribute.Int("NumPeersChecked", peersChecked), attribute.Int("NumPeersSkipped", len(peers)-peersChecked), attribute.Int64("NumPeersAlive", alive))
 }
 
 func (r *RtRefreshManager) loop() {
+	ctx := context.Background()
 	defer r.refcount.Done()
 
 	var refreshTickrCh <-chan time.Time
@@ -219,8 +211,6 @@ func (r *RtRefreshManager) loop() {
 			}
 		}
 
-		ctx, span := internal.StartSpan(r.ctx, "RefreshManager.Refresh")
-
 		r.pingAndEvictPeers(ctx)
 
 		// Query for self and refresh the required buckets
@@ -233,13 +223,10 @@ func (r *RtRefreshManager) loop() {
 			logger.Warnw("failed when refreshing routing table", "error", err)
 		}
 
-		span.End()
 	}
 }
 
 func (r *RtRefreshManager) doRefresh(ctx context.Context, forceRefresh bool) error {
-	ctx, span := internal.StartSpan(ctx, "RefreshManager.doRefresh")
-	defer span.End()
 
 	var merr error
 
@@ -309,13 +296,11 @@ func (r *RtRefreshManager) refreshCplIfEligible(ctx context.Context, cpl uint, l
 }
 
 func (r *RtRefreshManager) refreshCpl(ctx context.Context, cpl uint) error {
-	ctx, span := internal.StartSpan(ctx, "RefreshManager.refreshCpl", trace.WithAttributes(attribute.Int("cpl", int(cpl))))
-	defer span.End()
 
 	// gen a key for the query to refresh the cpl
 	key, err := r.refreshKeyGenFnc(cpl)
 	if err != nil {
-		span.SetStatus(codes.Error, err.Error())
+
 		return fmt.Errorf("failed to generated query key for cpl=%d, err=%s", cpl, err)
 	}
 
@@ -323,22 +308,20 @@ func (r *RtRefreshManager) refreshCpl(ctx context.Context, cpl uint) error {
 		cpl, loggableRawKeyString(key), r.rt.Size())
 
 	if err := r.runRefreshDHTQuery(ctx, key); err != nil {
-		span.SetStatus(codes.Error, err.Error())
+
 		return fmt.Errorf("failed to refresh cpl=%d, err=%s", cpl, err)
 	}
 
 	sz := r.rt.Size()
 	logger.Infof("finished refreshing cpl %d, routing table size is now %d", cpl, sz)
-	span.SetAttributes(attribute.Int("NewSize", sz))
+
 	return nil
 }
 
 func (r *RtRefreshManager) queryForSelf(ctx context.Context) error {
-	ctx, span := internal.StartSpan(ctx, "RefreshManager.queryForSelf")
-	defer span.End()
 
 	if err := r.runRefreshDHTQuery(ctx, string(r.dhtPeerId)); err != nil {
-		span.SetStatus(codes.Error, err.Error())
+
 		return fmt.Errorf("failed to query for self, err=%s", err)
 	}
 	return nil

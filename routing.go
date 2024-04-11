@@ -12,8 +12,6 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/peerstore"
 	"github.com/libp2p/go-libp2p/core/routing"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/trace"
 
 	u "github.com/ipfs/boxo/util"
 	"github.com/ipfs/go-cid"
@@ -33,8 +31,6 @@ import (
 // PutValue adds value corresponding to given Key.
 // This is the top level "Store" operation of the DHT
 func (dht *IpfsDHT) PutValue(ctx context.Context, key string, value []byte, opts ...routing.Option) (err error) {
-	ctx, end := tracer.PutValue(dhtName, ctx, key, value, opts...)
-	defer func() { end(err) }()
 
 	if !dht.enableValues {
 		return routing.ErrNotSupported
@@ -108,8 +104,6 @@ type recvdVal struct {
 
 // GetValue searches for the value corresponding to given Key.
 func (dht *IpfsDHT) GetValue(ctx context.Context, key string, opts ...routing.Option) (result []byte, err error) {
-	ctx, end := tracer.GetValue(dhtName, ctx, key, opts...)
-	defer func() { end(result, err) }()
 
 	if !dht.enableValues {
 		return nil, routing.ErrNotSupported
@@ -145,8 +139,6 @@ func (dht *IpfsDHT) GetValue(ctx context.Context, key string, opts ...routing.Op
 
 // SearchValue searches for the value corresponding to given Key and streams the results.
 func (dht *IpfsDHT) SearchValue(ctx context.Context, key string, opts ...routing.Option) (ch <-chan []byte, err error) {
-	ctx, end := tracer.SearchValue(dhtName, ctx, key, opts...)
-	defer func() { ch, err = end(ch, err) }()
 
 	if !dht.enableValues {
 		return nil, routing.ErrNotSupported
@@ -385,8 +377,6 @@ func (dht *IpfsDHT) refreshRTIfNoShortcut(key kb.ID, lookupRes *lookupWithFollow
 
 // Provide makes this node announce that it can provide a value for the given key
 func (dht *IpfsDHT) Provide(ctx context.Context, key cid.Cid, brdcst bool) (err error) {
-	ctx, end := tracer.Provide(dhtName, ctx, key, brdcst)
-	defer func() { end(err) }()
 
 	if !dht.enableProviders {
 		return routing.ErrNotSupported
@@ -494,8 +484,6 @@ func (dht *IpfsDHT) FindProviders(ctx context.Context, c cid.Cid) ([]peer.AddrIn
 // completes. Note: not reading from the returned channel may block the query
 // from progressing.
 func (dht *IpfsDHT) FindProvidersAsync(ctx context.Context, key cid.Cid, count int) (ch <-chan peer.AddrInfo) {
-	ctx, end := tracer.FindProvidersAsync(dhtName, ctx, key, count)
-	defer func() { ch = end(ch, nil) }()
 
 	if !dht.enableProviders || !key.Defined() {
 		peerOut := make(chan peer.AddrInfo)
@@ -514,8 +502,6 @@ func (dht *IpfsDHT) FindProvidersAsync(ctx context.Context, key cid.Cid, count i
 
 func (dht *IpfsDHT) findProvidersAsyncRoutine(ctx context.Context, key multihash.Multihash, count int, peerOut chan peer.AddrInfo) {
 	// use a span here because unlike tracer.FindProvidersAsync we know who told us about it and that intresting to log.
-	ctx, span := internal.StartSpan(ctx, "IpfsDHT.FindProvidersAsyncRoutine")
-	defer span.End()
 
 	defer close(peerOut)
 
@@ -548,10 +534,7 @@ func (dht *IpfsDHT) findProvidersAsyncRoutine(ctx context.Context, key multihash
 		if psTryAdd(p) {
 			select {
 			case peerOut <- p:
-				span.AddEvent("found provider", trace.WithAttributes(
-					attribute.Stringer("peer", p.ID),
-					attribute.Stringer("from", dht.self),
-				))
+
 			case <-ctx.Done():
 				return
 			}
@@ -588,10 +571,7 @@ func (dht *IpfsDHT) findProvidersAsyncRoutine(ctx context.Context, key multihash
 					logger.Debugf("using provider: %s", prov)
 					select {
 					case peerOut <- *prov:
-						span.AddEvent("found provider", trace.WithAttributes(
-							attribute.Stringer("peer", prov.ID),
-							attribute.Stringer("from", p),
-						))
+
 					case <-ctx.Done():
 						logger.Debug("context timed out sending more providers")
 						return nil, ctx.Err()
@@ -626,8 +606,6 @@ func (dht *IpfsDHT) findProvidersAsyncRoutine(ctx context.Context, key multihash
 
 // FindPeer searches for a peer with given ID.
 func (dht *IpfsDHT) FindPeer(ctx context.Context, id peer.ID) (pi peer.AddrInfo, err error) {
-	ctx, end := tracer.FindPeer(dhtName, ctx, id)
-	defer func() { end(pi, err) }()
 
 	if err := id.Validate(); err != nil {
 		return peer.AddrInfo{}, err

@@ -8,15 +8,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/libp2p/go-libp2p-routing-helpers/tracing"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/peerstore"
 	"github.com/libp2p/go-libp2p/core/protocol"
 	"github.com/libp2p/go-libp2p/core/routing"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/trace"
 
 	"github.com/libp2p/go-libp2p-kad-dht/internal"
 	dhtcfg "github.com/libp2p/go-libp2p-kad-dht/internal/config"
@@ -41,7 +38,6 @@ import (
 	"go.uber.org/zap"
 )
 
-const tracer = tracing.Tracer("go-libp2p-kad-dht")
 const dhtName = "IpfsDHT"
 
 var (
@@ -732,8 +728,6 @@ func (dht *IpfsDHT) fixRTIfNeeded() {
 
 // FindLocal looks for a peer with a given ID connected to this dht and returns the peer and the table it was found in.
 func (dht *IpfsDHT) FindLocal(ctx context.Context, id peer.ID) peer.AddrInfo {
-	_, span := internal.StartSpan(ctx, "IpfsDHT.FindLocal", trace.WithAttributes(attribute.Stringer("PeerID", id)))
-	defer span.End()
 
 	switch dht.host.Network().Connectedness(id) {
 	case network.Connected, network.CanConnect:
@@ -896,8 +890,7 @@ func (dht *IpfsDHT) Host() host.Host {
 
 // Ping sends a ping message to the passed peer and waits for a response.
 func (dht *IpfsDHT) Ping(ctx context.Context, p peer.ID) error {
-	ctx, span := internal.StartSpan(ctx, "IpfsDHT.Ping", trace.WithAttributes(attribute.Stringer("PeerID", p)))
-	defer span.End()
+
 	return dht.protoMessenger.Ping(ctx, p)
 }
 
